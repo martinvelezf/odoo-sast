@@ -17,7 +17,7 @@ from .scanner import merge, run_semgrep, scan_paths, semgrep_available
 def format_text(findings: List[Finding]) -> str:
     out = [f"{f.path}:{f.line}:{f.col}: {f.rule_id} [{f.severity}] {f.message}" for f in findings]
     counts = {s: sum(1 for f in findings if f.severity == s) for s in ("error", "warning", "note")}
-    out.append(f"\n{len(findings)} finding(s): {counts['error']} error, {counts['warning']} warning, "
+    out.append(f"{chr(10) if out else ''}{len(findings)} finding(s): {counts['error']} error, {counts['warning']} warning, "
                f"{counts['note']} note")
     return "\n".join(out)
 
