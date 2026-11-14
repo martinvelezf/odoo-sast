@@ -182,3 +182,29 @@ def test_suppression_of_other_rule_does_not_hide():
 
 def test_syntax_error_is_skipped():
     assert check_python_source("bad.py", "def (:\n") == []
+
+
+# ODS005: variable state is looked up at the execute() line ------------------
+def test_ods005_reassigned_constant_does_not_hide_earlier_formatted_sql():
+    body = ('q = f"SELECT * FROM t WHERE id = {rec_id}"\n'
+            'request.env.cr.execute(q)\n'
+            'q = "SELECT 1"\n'
+            'request.env.cr.execute(q)\n')
+    found = check_python_source("m.py", textwrap.dedent(route(body)))
+    assert [(f.rule_id, f.line) for f in found] == [("ODS005", 7)]
+
+
+def test_ods005_constant_variable_formatted_with_percent():
+    body = 'q = "SELECT * FROM t WHERE id = %s"\nrequest.env.cr.execute(q % kw["id"])\n'
+    assert ids(route(body)) == ["ODS005"]
+
+
+def test_ods005_augassign_with_literal_keeps_query_constant():
+    body = ('q = "SELECT * FROM t WHERE id = %s"\nq += " AND active"\n'
+            'request.env.cr.execute(q, (rec_id,))\n')
+    assert ids(route(body)) == []
+
+
+def test_ods005_augassign_with_variable_is_formatting():
+    body = 'q = "SELECT * FROM t WHERE "\nq += kw["where"]\nrequest.env.cr.execute(q)\n'
+    assert ids(route(body)) == ["ODS005"]

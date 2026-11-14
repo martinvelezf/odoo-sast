@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from .finding import Finding
 
@@ -98,7 +98,18 @@ class FunctionFacts:
     tainted: Set[str] = field(default_factory=set)
     sudo_vars: Set[str] = field(default_factory=set)
     browsed_vars: Set[str] = field(default_factory=set)  # records browsed by a tainted id, no sudo
-    formatted_sql_vars: Set[str] = field(default_factory=set)
+    # name -> [(lineno, kind)] in source order; kind is "fmt" (SQL built by formatting),
+    # "const" (plain string literal) or "other". Looked up by line so a later
+    # `q = "SELECT 1"` does not hide an earlier `q = f"... {x}"; cr.execute(q)`.
+    str_assigns: Dict[str, List[Tuple[int, str]]] = field(default_factory=dict)
+
+    def str_state(self, name: str, line: int) -> Optional[str]:
+        state = None
+        for ln, kind in self.str_assigns.get(name, ()):
+            if ln >= line:
+                break
+            state = kind
+        return state
     has_access_check: bool = False
 
 
@@ -157,24 +168,31 @@ class _Analyzer:
         return False
 
     @staticmethod
-    def is_formatted_sql(node: ast.AST, facts: FunctionFacts) -> bool:
+    def is_formatted_sql(node: ast.AST, facts: FunctionFacts, line: int) -> bool:
+        """True when node is a SQL string built by formatting, as seen at `line`."""
+
+        def literal(n: ast.AST) -> bool:  # string literal, or a variable holding one
+            return is_str_const(n) or (isinstance(n, ast.Name) and facts.str_state(n.id, line) == "const")
+
+        def strish(n: ast.AST) -> bool:
+            return literal(n) or isinstance(n, ast.JoinedStr) or (
+                isinstance(n, ast.Name) and facts.str_state(n.id, line) == "fmt")
+
         if isinstance(node, ast.JoinedStr):
             return any(isinstance(v, ast.FormattedValue) for v in node.values)
         if isinstance(node, ast.BinOp):
-            if isinstance(node.op, ast.Mod) and (is_str_const(node.left) or isinstance(node.left, ast.JoinedStr)):
+            if isinstance(node.op, ast.Mod) and strish(node.left):
                 return True
             if isinstance(node.op, ast.Add):
                 sides = (node.left, node.right)
-                strish = any(is_str_const(s) or isinstance(s, ast.JoinedStr) for s in sides)
-                all_const = all(is_str_const(s) for s in sides)
-                if strish and not all_const:
+                if any(strish(s) for s in sides) and not all(literal(s) for s in sides):
                     return True
-                return any(_Analyzer.is_formatted_sql(s, facts) for s in sides)
+                return any(_Analyzer.is_formatted_sql(s, facts, line) for s in sides)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == "format" and is_str_const(node.func.value):
+            if node.func.attr == "format" and literal(node.func.value):
                 return True
         if isinstance(node, ast.Name):
-            return node.id in facts.formatted_sql_vars
+            return facts.str_state(node.id, line) == "fmt"
         return False
 
     # -- driver --------------------------------------------------------------
@@ -200,6 +218,7 @@ class _Analyzer:
             key=lambda n: (n.lineno, n.col_offset),
         )
         for _ in range(2):  # two passes reach simple chains defined out of order
+            facts.str_assigns = {}
             for st in stmts:
                 if isinstance(st, ast.For):
                     targets, value = [st.target], st.iter
@@ -216,10 +235,20 @@ class _Analyzer:
                     facts.sudo_vars |= names
                 if route and self._browse_by_tainted(value, facts) and not self.has_sudo(value, facts):
                     facts.browsed_vars |= names
-                if self.is_formatted_sql(value, facts):
-                    facts.formatted_sql_vars |= names
-                elif is_str_const(value) and not isinstance(st, ast.AugAssign):
-                    facts.formatted_sql_vars -= names
+                if isinstance(st, ast.AugAssign) and isinstance(st.target, ast.Name):
+                    # q += ...  is  q = q + ...
+                    value = ast.BinOp(left=ast.Name(id=st.target.id, ctx=ast.Load()), op=st.op, right=value)
+                if self.is_formatted_sql(value, facts, st.lineno):
+                    kind = "fmt"
+                elif is_str_const(value) or (
+                    isinstance(st, ast.AugAssign) and isinstance(st.target, ast.Name)
+                    and facts.str_state(st.target.id, st.lineno) == "const"
+                ):
+                    kind = "const"
+                else:
+                    kind = "other"
+                for n in names:
+                    facts.str_assigns.setdefault(n, []).append((st.lineno, kind))
 
         facts.has_access_check = any(
             isinstance(n, ast.Call) and call_name(n) in ACCESS_CHECKS for n in ast.walk(fn)
@@ -247,7 +276,7 @@ class _Analyzer:
             # ODS005: SQL built with string formatting
             if call_name(node) == "execute" and isinstance(node.func, ast.Attribute):
                 recv = dotted(node.func.value).split(".")[-1]
-                if recv in CURSOR_NAMES and node.args and self.is_formatted_sql(node.args[0], facts):
+                if recv in CURSOR_NAMES and node.args and self.is_formatted_sql(node.args[0], facts, node.lineno):
                     self.report(node, "ODS005",
                                 "SQL passed to cr.execute() is built with string formatting; "
                                 "pass values as query parameters")

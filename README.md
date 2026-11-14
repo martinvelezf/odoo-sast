@@ -142,7 +142,7 @@ A test checks this.
 
 ```sh
 pip install -e ".[test,semgrep]"
-python -m pytest -q                                                     # 54 tests
+python -m pytest -q                                                     # 58 tests
 semgrep --test --config src/odoo_sast/semgrep tests/semgrep             # rule annotations
 ```
 
