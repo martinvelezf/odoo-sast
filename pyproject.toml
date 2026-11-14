@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo-sast"
+version = "0.1.0"
+description = "Security static analysis for Odoo addons: Python AST + QWeb checks, a Semgrep rule pack, SARIF output."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["odoo", "sast", "security", "semgrep", "sarif", "qweb"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.optional-dependencies]
+semgrep = ["semgrep>=1.80"]
+test = ["pytest>=7"]
+
+[project.scripts]
+odoo-sast = "odoo_sast.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+odoo_sast = ["semgrep/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

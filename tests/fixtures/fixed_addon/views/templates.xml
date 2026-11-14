@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="card" name="Card wrapper">
+        <div class="card"><t t-raw="0"/></div>
+    </template>
+    <template id="loan_page" name="Loan page">
+        <t t-call="website.layout">
+            <h1 t-esc="loan.name"/>
+            <div class="note" t-out="loan.note"/>
+            <p t-field="loan.partner_id.comment"/>
+        </t>
+    </template>
+    <template id="notice" name="Notice">
+        <t t-call="website.layout">
+            <div t-out="message"/>
+        </t>
+    </template>
+</odoo>
