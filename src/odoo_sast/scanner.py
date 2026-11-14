@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Iterable, List
 
@@ -48,13 +49,22 @@ def scan_paths(paths: Iterable[str], base: str = ".") -> List[Finding]:
     return sorted(set(findings))
 
 
+def semgrep_binary() -> str:
+    """semgrep on PATH, or next to the running interpreter (same virtualenv)."""
+    found = shutil.which("semgrep")
+    if found:
+        return found
+    sibling = Path(sys.executable).with_name("semgrep")
+    return str(sibling) if sibling.exists() else ""
+
+
 def semgrep_available() -> bool:
-    return shutil.which("semgrep") is not None
+    return bool(semgrep_binary())
 
 
 def run_semgrep(paths: Iterable[str], base: str = ".") -> List[Finding]:
     """Run the bundled Semgrep pack and map results onto ODS rule ids."""
-    cmd = ["semgrep", "scan", "--config", str(SEMGREP_PACK), "--json", "--quiet",
+    cmd = [semgrep_binary(), "scan", "--config", str(SEMGREP_PACK), "--json", "--quiet",
            "--metrics=off", "--disable-version-check", *paths]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode not in (0, 1):

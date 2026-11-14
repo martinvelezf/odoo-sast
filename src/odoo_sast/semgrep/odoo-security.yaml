@@ -1,0 +1,232 @@
+# odoo-sast Semgrep rule pack (Python). Rule ids carry the ODS code so that
+# `odoo-sast scan --semgrep` can merge results with the AST engine.
+# Usable on its own:  semgrep scan --config src/odoo_sast/semgrep/ path/to/addons
+rules:
+  - id: ods001-sudo-on-user-controlled-id
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Records are selected with sudo() using a value from the request ($SINK). Any visitor can
+      pick any record. Drop sudo() or call _document_check_access()/check_access_rights() first.
+    metadata:
+      cwe: "CWE-639: Authorization Bypass Through User-Controlled Key"
+      category: security
+      confidence: MEDIUM
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$ROUTE(...)
+              def $F(..., $P, ...):
+                ...
+          - metavariable-regex:
+              metavariable: $ROUTE
+              regex: ^(http\.)?route$
+          - metavariable-regex:
+              metavariable: $P
+              regex: ^(?!self$|cls$)
+          - focus-metavariable: $P
+      - pattern: request.params
+      - pattern: request.httprequest.$ATTR
+      - pattern: request.get_json_data(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.sudo().$FETCH($SINK, ...)
+              - pattern: $MODEL.sudo().$FETCH(..., $SINK)
+              - patterns:
+                  - pattern-inside: |
+                      $SUDOVAR = $X.sudo()
+                      ...
+                  - pattern: $SUDOVAR.$FETCH($SINK, ...)
+          - metavariable-regex:
+              metavariable: $FETCH
+              regex: ^(browse|search|search_read|search_count|search_fetch|read_group|_read_group)$
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $SELF._document_check_access(...)
+                ...
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $R.check_access_rights(...)
+                ...
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $R.check_access(...)
+                ...
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                consteq(...)
+                ...
+          - focus-metavariable: $SINK
+
+  - id: ods002-public-route-sudo
+    languages: [python]
+    severity: WARNING
+    message: >-
+      auth='$AUTH' route elevates with sudo(); anonymous visitors reach this code and bypass
+      ir.model.access and record rules.
+    metadata:
+      cwe: "CWE-285: Improper Authorization"
+      category: security
+      confidence: LOW
+    patterns:
+      - pattern-inside: |
+          @$ROUTE(..., auth=$AUTH, ...)
+          def $F(...):
+            ...
+      - metavariable-regex:
+          metavariable: $ROUTE
+          regex: ^(http\.)?route$
+      - metavariable-regex:
+          metavariable: $AUTH
+          regex: ^["'](public|none)["']$
+      - pattern: $X.sudo()
+
+  - id: ods003-csrf-disabled-state-change
+    languages: [python]
+    severity: ERROR
+    message: >-
+      This type='http' route sets csrf=False and changes data ($CALL). A cross-site form can make
+      a logged-in user's browser call it. Keep CSRF on, or authenticate webhooks with a signature.
+    metadata:
+      cwe: "CWE-352: Cross-Site Request Forgery (CSRF)"
+      category: security
+      confidence: MEDIUM
+    patterns:
+      - pattern-inside: |
+          @$ROUTE(..., csrf=False, ...)
+          def $F(...):
+            ...
+      - metavariable-regex:
+          metavariable: $ROUTE
+          regex: ^(http\.)?route$
+      - pattern-not-inside: |
+          @$ROUTE(..., type="json", ...)
+          def $F(...):
+            ...
+      - pattern-not-inside: |
+          @$ROUTE(..., type="jsonrpc", ...)
+          def $F(...):
+            ...
+      - pattern-not-inside: |
+          @$ROUTE(..., methods=["GET"], ...)
+          def $F(...):
+            ...
+      - pattern: $X.$CALL(...)
+      - metavariable-regex:
+          metavariable: $CALL
+          regex: ^(create|write|unlink|copy|toggle_active|action_\w+|button_\w+)$
+
+  - id: ods004-portal-idor
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A record browsed by an id from the request is elevated with sudo() without an access check.
+      Use CustomerPortal._document_check_access(model, id, access_token) first.
+    metadata:
+      cwe: "CWE-639: Authorization Bypass Through User-Controlled Key"
+      category: security
+      confidence: MEDIUM
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              @$ROUTE(...)
+              def $F(..., $P, ...):
+                ...
+          - metavariable-regex:
+              metavariable: $ROUTE
+              regex: ^(http\.)?route$
+          - metavariable-regex:
+              metavariable: $P
+              regex: ^(?!self$|cls$)
+          - focus-metavariable: $P
+      - pattern: request.params
+    pattern-propagators:
+      - pattern: $M.browse($ID)
+        from: $ID
+        to: $M
+    pattern-sinks:
+      - patterns:
+          - pattern: $REC.sudo()
+          - pattern-not: $M.browse(...).sudo()
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $SELF._document_check_access(...)
+                ...
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $R.check_access_rule(...)
+                ...
+          - pattern-not-inside: |
+              def $F(...):
+                ...
+                $R.check_access(...)
+                ...
+          - focus-metavariable: $REC
+
+  - id: ods005-sql-string-formatting
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL passed to cr.execute() is built with string formatting. Pass values as the second
+      argument, and build identifiers with psycopg2.sql or odoo.tools.SQL.
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      category: security
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: $CR.execute(f"...", ...)
+          - pattern: $CR.execute("..." % $A, ...)
+          - pattern: $CR.execute("...".format(...), ...)
+          - pattern: $CR.execute("..." + $A, ...)
+          - pattern: $CR.execute($A + "...", ...)
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $Q = f"..."
+                      ...
+                  - pattern-inside: |
+                      $Q = "..." % $A
+                      ...
+                  - pattern-inside: |
+                      $Q = "...".format(...)
+                      ...
+                  - pattern-inside: |
+                      $Q = "..." + $A
+                      ...
+                  - pattern-inside: |
+                      $Q += $A
+                      ...
+              - pattern: $CR.execute($Q, ...)
+      - metavariable-regex:
+          metavariable: $CR
+          regex: ^(.*\.)?_?(cr|cursor)$
+
+  - id: ods006-markup-on-dynamic-data
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Markup() marks a non-literal value as safe HTML; if it can hold user data this is stored
+      XSS. Use Markup("<p>%s</p>") % value or html_escape().
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+      category: security
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: Markup($X)
+          - pattern: markupsafe.Markup($X)
+      - pattern-not: Markup("...")
+      - pattern-not: markupsafe.Markup("...")
+      - pattern-not: Markup(_("..."))
+      - pattern-not: Markup(html_escape(...))
+      - pattern-not: Markup(escape(...))

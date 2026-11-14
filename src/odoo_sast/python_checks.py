@@ -332,9 +332,9 @@ class _Analyzer:
             for c in calls:
                 n = call_name(c)
                 if isinstance(c.func, ast.Attribute) and (n in STATE_CHANGERS or n.startswith(STATE_CHANGER_PREFIXES)):
-                    self.report(fn.decorator_list[0] if fn.decorator_list else fn, "ODS003",
-                                f"csrf=False route '{fn.name}' calls {dotted(c.func)}() "
-                                f"(line {c.lineno}); a cross-site form can trigger it")
+                    self.report(c, "ODS003",
+                                f"csrf=False route '{fn.name}' (line {route.lineno}) calls "
+                                f"{dotted(c.func)}(); a cross-site form can trigger it")
                     break
 
 

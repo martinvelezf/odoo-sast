@@ -1,0 +1,25 @@
+# odoo-sast Semgrep rule pack (QWeb templates, generic/regex mode).
+rules:
+  - id: ods101-qweb-t-raw
+    languages: [generic]
+    severity: WARNING
+    message: >-
+      QWeb t-raw renders its expression without escaping (deprecated since 15.0). Use t-out.
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+      category: security
+    paths:
+      include: ["*.xml"]
+    pattern-regex: t-raw\s*=\s*"(?!0")[^"]*"
+
+  - id: ods102-qweb-markup-in-template
+    languages: [generic]
+    severity: WARNING
+    message: >-
+      A QWeb expression wraps its value in Markup(), disabling escaping right in the template.
+    metadata:
+      cwe: "CWE-79: Cross-site Scripting"
+      category: security
+    paths:
+      include: ["*.xml"]
+    pattern-regex: t-(out|esc|raw|att(-[\w-]+)?|attf-[\w-]+)\s*=\s*"[^"]*\bMarkup\s*\(

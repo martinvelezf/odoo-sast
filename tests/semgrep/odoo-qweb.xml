@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="t1">
+        <!-- ruleid: ods101-qweb-t-raw -->
+        <div t-raw="record.note"/>
+        <!-- ok: ods101-qweb-t-raw -->
+        <div class="wrap"><t t-raw="0"/></div>
+        <!-- ok: ods101-qweb-t-raw -->
+        <div t-out="record.note"/>
+        <!-- ruleid: ods102-qweb-markup-in-template -->
+        <p t-out="Markup(record.comment)"/>
+        <!-- ok: ods102-qweb-markup-in-template -->
+        <p t-esc="record.comment"/>
+    </template>
+</odoo>

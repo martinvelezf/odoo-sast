@@ -1,0 +1,3 @@
+# Override Semgrep's default ignores so tests/fixtures are scanned in this repo.
+.venv/
+.git/
