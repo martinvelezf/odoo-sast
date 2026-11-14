@@ -1,0 +1,16 @@
+- id: odoo-sast
+  name: odoo-sast (Odoo security checks)
+  description: Security static analysis for Odoo addons (sudo/IDOR/CSRF/SQL/QWeb XSS).
+  entry: odoo-sast scan
+  language: python
+  types_or: [python, xml]
+  require_serial: true
+
+- id: odoo-sast-semgrep
+  name: odoo-sast + Semgrep pack
+  description: Same checks, also running the bundled Semgrep rule pack.
+  entry: odoo-sast scan --semgrep
+  language: python
+  additional_dependencies: ["semgrep>=1.80"]
+  types_or: [python, xml]
+  require_serial: true

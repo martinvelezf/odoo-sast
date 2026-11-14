@@ -1,0 +1,51 @@
+name: odoo-sast
+description: Security static analysis for Odoo addons, uploaded to GitHub code scanning as SARIF.
+branding:
+  icon: shield
+  color: purple
+inputs:
+  paths:
+    description: Space-separated addon directories to scan.
+    default: "."
+  fail-on:
+    description: "error | warning | note | never"
+    default: "error"
+  semgrep:
+    description: Also run the bundled Semgrep rule pack ("true"/"false").
+    default: "false"
+  sarif-file:
+    description: Where to write the SARIF report.
+    default: odoo-sast.sarif
+  upload:
+    description: Upload the SARIF to GitHub code scanning ("true"/"false"). Needs security-events write.
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install odoo-sast
+      shell: bash
+      run: |
+        python -m pip install --quiet "${{ github.action_path }}"
+        if [ "${{ inputs.semgrep }}" = "true" ]; then python -m pip install --quiet "semgrep>=1.80"; fi
+    - name: Scan
+      id: scan
+      shell: bash
+      run: |
+        extra=""
+        if [ "${{ inputs.semgrep }}" = "true" ]; then extra="--semgrep"; fi
+        set +e
+        odoo-sast scan $extra -f sarif -o "${{ inputs.sarif-file }}" --fail-on "${{ inputs.fail-on }}" ${{ inputs.paths }}
+        echo "exit=$?" >> "$GITHUB_OUTPUT"
+        odoo-sast scan $extra --fail-on never ${{ inputs.paths }}
+    - name: Upload SARIF
+      if: ${{ inputs.upload == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: odoo-sast
+    - name: Enforce fail-on
+      shell: bash
+      run: exit ${{ steps.scan.outputs.exit }}

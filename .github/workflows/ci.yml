@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[test]"
+      - name: Unit + fixture tests (AST engine)
+        run: python -m pytest -q
+
+  semgrep-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[test,semgrep]"
+      - name: semgrep --test on the rule pack
+        run: semgrep --test --metrics=off --config src/odoo_sast/semgrep tests/semgrep
+      - name: Parity tests (Semgrep vs AST engine)
+        run: python -m pytest -q tests/test_semgrep_pack.py
+
+  self-scan:
+    # dogfood the composite action against the fixtures; the vulnerable addon must fail it
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          paths: tests/fixtures/fixed_addon
+          upload: "false"
+      - id: vuln
+        uses: ./
+        continue-on-error: true
+        with:
+          paths: tests/fixtures/vulnerable_addon
+          upload: "false"
+      - name: Vulnerable fixture must have failed
+        run: test "${{ steps.vuln.outcome }}" = "failure"
